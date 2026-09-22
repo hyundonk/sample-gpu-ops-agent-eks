@@ -1,0 +1,16 @@
+# Terraform — 상태 파일에 계정ID·엔드포인트·인증서·(sps-tracker는 대시보드 비밀번호) 포함
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/tfplan
+**/.build/
+# Lambda 빌드 산출물
+**/lambda/*.zip
+**/orchestration.zip
+# 로컬 환경
+.venv/
+__pycache__/
+.DS_Store
+*.log
+build.log
+

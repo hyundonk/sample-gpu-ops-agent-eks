@@ -1,0 +1,27 @@
+# gpu-ladder 차트 기본 values — 실배포 시 terraform(karpenter-resources.tf)이 덮어씀.
+clusterName: gpu-agent-demo-seoul
+nodeIamRoleName: gpu-agent-demo-seoul-karpenter-node
+ebsVolumeSize: 100Gi
+# 사다리 정의 — terraform variables.tf의 ladder_pools가 yamlencode로 주입됨
+pools:
+  - name: gpu-mig
+    weight: 100
+    capacityType: spot
+    instanceTypes: ["g7e.2xlarge"]
+    migProfile: all-2g.48gb
+    gpuLimit: "2"
+    gpuMax: "2"
+  - name: gpu-g6e
+    weight: 80
+    capacityType: spot
+    instanceTypes: ["g6e.2xlarge"]
+    migProfile: ""
+    gpuLimit: "2"
+    gpuMax: "2"
+  - name: gpu-od
+    weight: 60
+    capacityType: on-demand
+    instanceTypes: ["g7e.2xlarge", "g6e.2xlarge"]
+    migProfile: all-2g.48gb
+    gpuLimit: "2"   # 상시 개방 (가용성 우선) — limits = OD 비용 캡
+    gpuMax: "2"

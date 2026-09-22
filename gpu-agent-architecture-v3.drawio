@@ -1,0 +1,171 @@
+<mxfile host="app.diagrams.net" modified="2026-09-16T08:35:00.000Z" agent="kiro" version="24.0.0">
+  <diagram id="gpu-agent-arch-v3" name="GPU Agent v3 (확정 아키텍처)">
+    <mxGraphModel dx="1700" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="GPU 용량·장애 자동 대응 Agent — v3 확정 아키텍처 (AgentCore + Strands · 3리전 · 제어 항목 4종)" style="text;html=1;fontSize=18;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="180" y="16" width="1300" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Invoke: 알람→Gate→SFN→task-token 비동기 · 도구: read는 Gateway/MCP로 Agent가 직접, write는 Gateway 미등록 — SFN이 직접 호출 (Agent 미경유)" style="text;html=1;fontSize=11;align=center;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="180" y="44" width="1300" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ============ 1. 신호 소스 ============ -->
+        <mxCell id="srcBox" value="① 신호 소스" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="220" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="srcCW" value="CloudWatch Alarms&#10;상시사다리 소진 5분 · GPU 미광고(F5)&#10;큐 SLO · DCGM 추세(W1/W2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="55" y="120" width="190" height="62" as="geometry" />
+        </mxCell>
+                <mxCell id="srcSched" value="EventBridge Scheduler&#10;(posture 15~30분: T-신호/SPS 추세)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="55" y="248" width="190" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="srcOps" value="운영자&#10;(수동 조사 / Shadow 검증 /&#10;사후 분석 — 동기 호출)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1">
+          <mxGeometry x="55" y="304" width="190" height="56" as="geometry" />
+        </mxCell>
+        <mxCell id="srcNote" value="raw 이벤트는 메트릭 집계용 —&#10;알람 '상태 전이'만 트리거 (폭풍 방지)" style="text;html=1;fontSize=10;fontColor=#888888;" vertex="1" parent="1">
+          <mxGeometry x="55" y="370" width="190" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ============ 2. 게이트 계층 ============ -->
+        <mxCell id="gateBox" value="② 결정론 게이트" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="90" width="210" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="eb" value="EventBridge&#10;(알람 상태전이만 라우팅)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFB570;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="315" y="120" width="180" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="sqs" value="SQS (버스트 흡수 + DLQ)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFB570;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="315" y="178" width="180" height="38" as="geometry" />
+        </mxCell>
+        <mxCell id="gateLambda" value="Lambda Gate&#10;· incident key 중복 제거&#10;· 쿨다운/액션예산 (코드 강제)&#10;· 컨텍스트 번들링&#10;· mode: incident / posture&#10;  (예산 분리)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFB570;strokeColor=#D79B00;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="315" y="228" width="180" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ddb" value="DynamoDB&#10;인시던트·쿨다운·감사 로그" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1">
+          <mxGeometry x="315" y="350" width="180" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- ============ 3. Step Functions ============ -->
+        <mxCell id="sfnBox" value="③ Step Functions — 흐름 소유 (StartExecution name=incident_id, 멱등)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7E6;strokeColor=#D6B656;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="550" y="90" width="540" height="400" as="geometry" />
+        </mxCell>
+        <mxCell id="sInv" value="Investigate&#10;InvokeAgentRuntime 비동기&#10;(task_token 동봉, 즉시 accepted 반환)&#10;→ SFN 무과금 대기 (Timeout+Heartbeat)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="570" y="122" width="240" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="sChoice" value="Choice&#10;risk?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;" vertex="1" parent="1">
+          <mxGeometry x="620" y="222" width="110" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="sApprove" value="Approve (HIGH)&#10;waitForTaskToken&#10;무과금 HITL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;" vertex="1" parent="1">
+          <mxGeometry x="570" y="308" width="140" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="sExec" value="Execute (Parallel)&#10;plan.actions[]대로 write Lambda 직접 호출&#10;예: 2단계 = {서울 OD limits ∥ 도쿄 KEDA max}&#10;동시 개방 — Agent 미경유" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;" vertex="1" parent="1">
+          <mxGeometry x="760" y="292" width="230" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="sVerify" value="Verify&#10;10분 효과 측정&#10;무효 → 재계획 (≤3회)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="870" y="180" width="150" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="sReport" value="Report — SNS/티켓 + Memory 기록 + 원복 스케줄 등록 (원복도 동일 write Lambda·동일 경계)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;" vertex="1" parent="1">
+          <mxGeometry x="570" y="400" width="500" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="sfnNote" value="posture 경로(B): 경량 SFN — 같은 Runtime, mode=posture, write는 항목 #2 한정" style="text;html=1;fontSize=10;fontColor=#996600;" vertex="1" parent="1">
+          <mxGeometry x="570" y="452" width="500" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ============ 4. AgentCore ============ -->
+        <mxCell id="acBox" value="④ Amazon Bedrock AgentCore — 판단 전용 (짧은 세션, 2모드 공용)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EBF3FA;strokeColor=#1F5B99;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="520" width="790" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="acRuntime" value="Runtime — Strands Graph (세션 = hash(incident_id))&#10;&#10;classify (F·W·T 통합 분류, structured output)&#10;→ investigate (read 도구만, 호출 상한 ~20회)&#10;→ plan {scenario, actions[{tool,cluster,params}], risk, budget, rollback}&#10;→ SendTaskSuccess(plan) 로 SFN 재개" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#1F5B99;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="320" y="552" width="400" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="acGateway" value="Gateway (MCP) — read 도구 4종만 등록&#10;★ write는 미등록: Agent가 호출할 표면 자체가 없음" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="320" y="688" width="400" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="readBox" value="⑥ READ 도구 백엔드 3종 (Lambda — AgentCore 외부, Gateway가 MCP로 노출)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#82B366;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="785" width="790" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="tRead" value="· k8s_read (cluster ∈ {seoul,tokyo,mumbai}) — NodeClaim/NodePool/Pod/이벤트 (NodeClaim 에러 코드 = F1~F4 근거)&#10;· cloudwatch_read — SPS Tracker(T-신호)·DCGM per-MIG(W-신호)·큐 깊이&#10;· spot_price_read — 시세/OD 비교 (F7·비용 추정)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="315" y="815" width="760" height="86" as="geometry" />
+        </mxCell>
+        <mxCell id="acIdentity" value="Identity + Policy&#10;도구별 최소권한 IAM&#10;+ 파라미터 수준 인가" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="740" y="552" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="acMemory" value="Memory&#10;단기(세션) + 장기&#10;(판정→액션→결과·리전별 단가)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="915" y="552" width="160" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="acObs" value="Observability (OTEL→CloudWatch)&#10;Shadow 모드 분류 정확도 채점 · tool call 감사" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="740" y="636" width="335" height="52" as="geometry" />
+        </mxCell>
+        <mxCell id="bedrockBox" value="⑦ Amazon Bedrock (파운데이션 모델)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F2F7EC;strokeColor=#5A8F3D;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="935" width="790" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="acModel" value="Claude — Graph 노드별 모델 분리: classify/plan은 고성능 모델 · investigate 반복 조회는 경량 모델 (비용 최적화)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5A8F3D;" vertex="1" parent="1">
+          <mxGeometry x="315" y="963" width="760" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="InvokeModel" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=9;dashed=1;" edge="1" parent="1" source="acRuntime" target="acModel"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- ============ 5. 실행·대상 ============ -->
+        <mxCell id="tgtBox" value="⑤ 실행 · 대상 (3리전)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="90" width="330" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="tWrite" value="WRITE Lambda 4종 (파라미터 재검증 코드)&#10;① patch_nodepool_limits (게이트 개폐)&#10;② patch_consolidate_after (노드 보유)&#10;③ patch_keda_max (max 조정 + pause 개폐 = 리전 게이트)&#10;④ recover_gpu_stack (라벨 원복·Pod 재생성)&#10;— cluster 파라미터로 3리전 대상 선택" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="120" width="300" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="tSeoul" value="서울 EKS (home)&#10;Karpenter 사다리 전체 + KEDA 가동 (max 12)&#10;Access Entry + RBAC(게이트 풀만)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="248" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tTokyo" value="도쿄 EKS (warm)&#10;Karpenter 사다리 + KEDA pause(0) 어노테이션 (리전 게이트)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="316" width="300" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="tMumbai" value="뭄바이 EKS (warm)&#10;Karpenter 사다리 + KEDA pause(0) 어노테이션 (리전 게이트)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="374" width="300" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="tValkey" value="중앙 ElastiCache Valkey 큐 (서비스 플랫폼)&#10;— 3리전 KEDA가 공동 소비 (라우팅 계층 없음)&#10;큐 깊이 → CloudWatch exporter (알람 전제)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="440" width="300" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="tApprover" value="승인자 (SNS/Slack → SendTaskSuccess)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="520" width="300" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="tSns" value="SNS / 티켓 — 리포트·에스컬레이션(S13)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="568" width="300" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="tRevert" value="EventBridge Scheduler — 원복 타이머&#10;(원복도 동일 write Lambda·동일 경계)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="616" width="300" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="tGuard" value="3중 가드레일 (write 경로)&#10;AgentCore Policy → Lambda 코드 재검증 →&#10;K8s RBAC resourceNames (상시 사다리 불가침)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B85450;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1145" y="680" width="300" height="64" as="geometry" />
+        </mxCell>
+
+        <!-- ============ Edges ============ -->
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="srcCW" target="eb"><mxGeometry relative="1" as="geometry" /></mxCell>
+                <mxCell id="e3" value="mode=posture" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="srcSched" target="gateLambda"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" value="직접 호출 (동기)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="srcOps" target="acRuntime"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="eb" target="sqs"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sqs" target="gateLambda"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="gateLambda" target="ddb"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e8" value="StartExecution" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="gateLambda" target="sInv"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sInv" target="sChoice"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f2" value="HIGH" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=9;" edge="1" parent="1" source="sChoice" target="sApprove"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f3" value="else" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=9;" edge="1" parent="1" source="sChoice" target="sExec"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sApprove" target="sExec"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sExec" target="sVerify"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f6" value="무효 재계획" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="sVerify" target="sInv"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sVerify" target="sReport"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="g1" value="① 비동기 invoke (task_token)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="sInv" target="acRuntime"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="g2" value="② SendTaskSuccess(plan)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=10;dashed=1;" edge="1" parent="1" source="acRuntime" target="sInv"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="g3" value="MCP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=9;" edge="1" parent="1" source="acRuntime" target="acGateway"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="g4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="acGateway" target="tRead"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h1" value="write 직접 호출 (Agent 미경유)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="sExec" target="tWrite"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="tWrite" target="tSeoul"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="tWrite" target="tTokyo"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="tWrite" target="tMumbai"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h5" value="승인 요청/응답" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="sApprove" target="tApprover"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;" edge="1" parent="1" source="sReport" target="tSns"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h7" value="원복 등록" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="sReport" target="tRevert"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="r1" value="읽기 전용 조회 (3리전 EKS·CloudWatch·EC2 API)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="tRead" target="tSeoul"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="h8" value="큐 공동 소비" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;fontSize=9;" edge="1" parent="1" source="tValkey" target="tTokyo"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

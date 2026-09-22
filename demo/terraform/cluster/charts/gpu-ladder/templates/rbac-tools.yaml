@@ -1,0 +1,73 @@
+{{- /*
+write 도구 RBAC — 3중 가드레일의 3층 (K8s API 서버가 최종 강제).
+Access Entry(demo-tools-writer 그룹)의 write Lambda IAM 롤에 매핑.
+
+경계 분담 (Lambda 코드 검증과 상보적):
+  - nodepools: resourceNames로 사다리 3풀만 — 그 외 풀은 API 서버가 403.
+    limits의 "게이트 풀만" 제약은 필드 수준이라 RBAC으로 불가 → Lambda 코드(2층)가 강제.
+  - scaledobjects: mock-worker만.
+  - nodes patch: 노드명이 동적이라 resourceNames 불가 → "GPU 노드만"은 Lambda 코드가 검증.
+  - pods delete: inference/gpu-operator 네임스페이스만 (Role로 한정).
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: demo-tools-writer
+rules:
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodepools"]
+    verbs: ["get", "patch"]
+    resourceNames: ["gpu-mig", "gpu-g6e", "gpu-od"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-tools-writer
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: demo-tools-writer }
+subjects:
+  - { kind: Group, apiGroup: rbac.authorization.k8s.io, name: demo-tools-writer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: demo-tools-writer
+  namespace: inference
+rules:
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects"]
+    verbs: ["get", "patch"]
+    resourceNames: ["mock-worker"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-tools-writer
+  namespace: inference
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: demo-tools-writer }
+subjects:
+  - { kind: Group, apiGroup: rbac.authorization.k8s.io, name: demo-tools-writer }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: demo-tools-writer
+  namespace: gpu-operator
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-tools-writer
+  namespace: gpu-operator
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: demo-tools-writer }
+subjects:
+  - { kind: Group, apiGroup: rbac.authorization.k8s.io, name: demo-tools-writer }

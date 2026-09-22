@@ -1,0 +1,5 @@
+bedrock-agentcore
+strands-agents
+mcp-proxy-for-aws
+pydantic>=2
+boto3

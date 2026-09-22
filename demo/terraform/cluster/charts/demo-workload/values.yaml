@@ -1,0 +1,7 @@
+# demo-workload 기본 values — terraform(keda.tf)이 덮어씀
+namespace: inference
+workerImage: ""        # ECR 이미지 URI:tag (terraform 주입)
+valkeyHost: ""         # Valkey 엔드포인트 (terraform 주입)
+queueName: gpu-jobs
+jobDurationSec: "90"
+maxReplicaCount: 6     # 서울 데모 기본. 원격 리전(Phase 2)은 0 (리전 게이트)

@@ -1,0 +1,31 @@
+{{- /*
+신호 수집용 읽기 RBAC — exporter Lambda의 Access Entry(kubernetes_groups:
+demo-signals-reader)가 이 그룹에 매핑된다.
+관리형 AmazonEKSViewPolicy는 네임스페이스 리소스만 커버(nodes 403 — 실측
+2026-09-22)하므로 클러스터 스코프 읽기는 커스텀 RBAC이 필요.
+WP4 write 도구의 resourceNames 한정 RBAC도 같은 패턴을 사용한다.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: demo-signals-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "events"]
+    verbs: ["get", "list"]
+  - apiGroups: ["karpenter.sh"]
+    resources: ["nodepools", "nodeclaims"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: demo-signals-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: demo-signals-reader
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: demo-signals-reader

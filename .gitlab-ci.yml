@@ -1,0 +1,10 @@
+# 보안 스캔 전용 파이프라인 — GitHub 공개 전 사전 점검용
+# GitLab 내장 템플릿: 시크릿 탐지 + SAST + IaC(Terraform) 스캔
+include:
+  - template: Security/Secret-Detection.gitlab-ci.yml
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/SAST-IaC.gitlab-ci.yml
+
+secret_detection:
+  variables:
+    SECRET_DETECTION_HISTORIC_SCAN: "true"   # 전체 히스토리 스캔

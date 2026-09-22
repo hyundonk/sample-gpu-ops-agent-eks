@@ -1,0 +1,5 @@
+.terraform/
+*.tfstate*
+tfplan
+lambda/exporter/.build/
+lambda/exporter.zip

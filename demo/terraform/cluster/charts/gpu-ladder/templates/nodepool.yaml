@@ -1,0 +1,55 @@
+{{- /*
+=============================================================================
+사다리 NodePool — weight 내림차순 폴백 열 (통합 설계서 §2.2 / 부록 B)
+=============================================================================
+- weight: "새 용량 조달 경로의 순서" (Pod 배치 우선순위 아님 — §1)
+- limits."nvidia.com/gpu": 물리 GPU 수 기준 예산.
+    "0" = 게이트 잠금 (Karpenter 자격 필터에서 탈락 — 시도 자체가 안 됨)
+    Agent 제어 항목 #1이 이 필드를 patch (gpu-od만, RBAC resourceNames로 한정)
+- nvidia.com/mig.config 라벨: MIG Manager 트리거 (빈 값이면 미부착 = 풀 GPU)
+- GitOps 주의: 이 차트를 ArgoCD 관리로 옮길 경우 gpu-od의
+    spec.limits는 ignoreDifferences로 런타임(Agent) 소유를 명시할 것 (§5.1)
+*/}}
+{{- range .Values.pools }}
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: {{ .name }}
+  labels:
+    demo/gpu-max: {{ .gpuMax | quote }} # Git 선언 상한 (write Lambda 재검증 참조용)
+spec:
+  weight: {{ .weight }}
+  template:
+    metadata:
+      labels:
+        node-role: gpu
+        {{- if .migProfile }}
+        nvidia.com/mig.config: {{ .migProfile }}
+        {{- end }}
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: gpu-ladder
+      requirements:
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values:
+            {{- range .instanceTypes }}
+            - {{ . | quote }}
+            {{- end }}
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: [{{ .capacityType | quote }}]
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      expireAfter: Never
+  limits:
+    nvidia.com/gpu: {{ .gpuLimit | quote }}
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m # Agent 제어 항목 #2 (SPS 지속 저점 시 연장)
+{{- end }}

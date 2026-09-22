@@ -1,0 +1,63 @@
+{{- /*
+mock 워커 Deployment + KEDA ScaledObject (제어 항목 #3의 대상)
+- replicas를 명시하지 않음: KEDA(HPA)가 소유 — GitOps/재적용과 무충돌
+- GitOps 이관 시 ScaledObject.spec.maxReplicaCount는 런타임(Agent) 소유로
+  ignoreDifferences 계약 필요 (통합 설계서 §5.1)
+*/}}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-worker
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels: { app: mock-worker }
+  template:
+    metadata:
+      labels: { app: mock-worker }
+    spec:
+      terminationGracePeriodSeconds: 90  # drain 예산(60s) + 반환·종료 마진
+      nodeSelector:
+        node-role: gpu
+      tolerations:
+        - { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: worker
+          image: {{ .Values.workerImage }}
+          resources:
+            requests:
+              nvidia.com/gpu: 1        # MIG 슬라이스든 풀 GPU든 리소스명 동일 (single 전략)
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              nvidia.com/gpu: 1
+          env:
+            - { name: VALKEY_HOST, value: {{ .Values.valkeyHost | quote }} }
+            - { name: QUEUE_NAME, value: {{ .Values.queueName | quote }} }
+            - { name: DEFAULT_DURATION_SEC, value: {{ .Values.jobDurationSec | quote }} }
+            - { name: DRAIN_BUDGET_SEC, value: "60" }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: mock-worker
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    name: mock-worker
+  minReplicaCount: 0                    # 큐 비면 워커 0 = GPU 노드 0 (scale-to-zero)
+  maxReplicaCount: {{ .Values.maxReplicaCount }}  # ★ Agent 제어 항목 #3 / 리전 게이트
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: redis
+      metadata:
+        address: "{{ .Values.valkeyHost }}:6379"
+        listName: {{ .Values.queueName | quote }}
+        listLength: "5"                 # replica당 목표 큐 깊이
+        enableTLS: "true"               # Serverless Valkey는 TLS 필수

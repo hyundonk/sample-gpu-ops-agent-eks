@@ -1,0 +1,5 @@
+apiVersion: v2
+name: gpu-ladder
+description: Karpenter fallback-ladder NodePools (spot MIG / spot g6e / on-demand gate), shared EC2NodeClass, and MIG parted config for the GPU agent demo
+type: application
+version: 0.3.0  # 0.3.0: rbac-tools.yaml 추가 (write 도구 — resourceNames 한정)

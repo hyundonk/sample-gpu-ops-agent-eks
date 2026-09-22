@@ -1,0 +1,28 @@
+{{- /*
+EC2NodeClass "gpu-ladder" — 사다리 3풀이 공용으로 참조하는 하드웨어/OS 명세.
+al2023@latest alias: GPU 인스턴스 타입이면 Karpenter가 NVIDIA 가속 variant를
+자동 선택 (g7e/g6e 모두 커스텀 AMI 불필요 — PoC 검증).
+*/}}
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: gpu-ladder
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  role: {{ .Values.nodeIamRoleName }}
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName }}
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: {{ .Values.clusterName }}
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: {{ .Values.ebsVolumeSize }}
+        volumeType: gp3
+        deleteOnTermination: true
+  tags:
+    Project: gpu-agent-demo
+    Purpose: agent-scenario-validation

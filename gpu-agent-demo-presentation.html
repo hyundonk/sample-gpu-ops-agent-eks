@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>GPU 용량·장애 자동 대응 AI Agent — 구현 결과</title>
+<style>
+  :root {
+    --color-bg: #faf9fc; --color-text: #131920;
+    --color-bg-secondary: #fff; --color-bg-tertiary: #f9fafb;
+    --color-surface: #f9fafb;
+    --color-border: #0000001f; --color-border-light: #0000000f; --color-border-strong: #d1d5db;
+    --color-primary: #4200db; --color-primary-dark: #35009e; --color-primary-light: #8575ff; --color-primary-bg: #e8e6ff;
+    --color-text-secondary: #5e5e5e; --color-text-muted: #9ca3af; --color-text-on-primary: #fff;
+    --color-success: #00802f; --color-success-dark: #00471e; --color-success-bg: #e6f5eb; --color-success-border: #b3d9bf;
+    --color-error: #db0000; --color-error-dark: #700000; --color-error-bg: #fceaea; --color-error-border: #f2cccc;
+    --color-warning-bg: #fef7e6; --color-warning-border: #f9dfa3; --color-warning-text: #573a00;
+    --color-info: #006ce0; --color-info-dark: #002a66; --color-info-bg: #ebf3fc; --color-info-border: #b3d1f0;
+    --font-sans: "Amazon Ember", "Helvetica Neue", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
+    --radius-sm: 6px; --radius-md: 10px; --radius-pill: 8px;
+    --shadow-sm: 0 1px 2px #0000000d; --shadow-md: 0 4px 12px #00000014;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--color-bg); font-family: var(--font-sans); color: var(--color-text); margin: 0; line-height: 1.55; }
+  .deck { max-width: 1080px; margin: 0 auto; padding: 64px 28px 90px; }
+  .slide { display: none; min-height: calc(100vh - 160px); animation: fade .25s ease; }
+  .slide.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+
+  /* nav */
+  .topbar { position: fixed; top: 0; left: 0; right: 0; background: #fffffff2; backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--color-border-light); z-index: 10; }
+  .topbar .in { max-width: 1080px; margin: 0 auto; padding: 10px 28px; display: flex; align-items: center; gap: 14px; }
+  .topbar .brand { font-size: 13px; font-weight: 700; color: var(--color-primary); }
+  .topbar .title { font-size: 13px; color: var(--color-text-secondary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dots { display: flex; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-border-strong); cursor: pointer; border: 0; padding: 0; }
+  .dot.on { background: var(--color-primary); }
+  .navbtns { position: fixed; bottom: 22px; right: 26px; display: flex; gap: 8px; z-index: 10; }
+  .navbtn { border: 1px solid var(--color-border); background: var(--color-bg-secondary); border-radius: var(--radius-pill);
+    padding: 8px 16px; font-size: 14px; cursor: pointer; box-shadow: var(--shadow-sm); font-family: var(--font-sans); }
+  .navbtn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+  .pageno { position: fixed; bottom: 30px; left: 28px; font-size: 12px; color: var(--color-text-muted); font-family: var(--font-mono); }
+
+  h1 { font-size: 30px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 21px; font-weight: 700; margin: 0 0 4px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .sub { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 20px; }
+  .kicker { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--color-primary); margin-bottom: 8px; }
+
+  .card { background: var(--color-bg-secondary); border: 1px solid var(--color-border-light); border-radius: var(--radius-md);
+    padding: 20px; margin-bottom: 14px; box-shadow: var(--shadow-sm); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+  .step-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    border-radius: var(--radius-pill); background: var(--color-primary); color: var(--color-text-on-primary);
+    font-size: 12px; font-weight: 700; flex-shrink: 0; }
+
+  .flow { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; }
+  .box { flex: 1; min-width: 130px; border-radius: var(--radius-md); padding: 12px; border: 1px solid var(--color-border); background: var(--color-surface); }
+  .box .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); margin-bottom: 5px; }
+  .box .val { font-size: 13.5px; font-weight: 600; }
+  .box .note { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 5px; }
+  .box.hl { border-color: var(--color-primary-light); background: var(--color-primary-bg); }
+  .box.ok { border-left: 3px solid var(--color-success); }
+  .box.warn { border-left: 3px solid var(--color-error); }
+  .arrow { display: flex; align-items: center; font-size: 20px; color: var(--color-text-muted); }
+
+  .callout { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); border-radius: var(--radius-md);
+    padding: 13px 15px; color: var(--color-warning-text); font-size: 13.5px; display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
+  .callout.info { background: var(--color-info-bg); border-color: var(--color-info-border); color: var(--color-info-dark); }
+  .callout.good { background: var(--color-success-bg); border-color: var(--color-success-border); color: var(--color-success-dark); }
+  .callout .ico { font-size: 17px; }
+
+  .pill { display: inline-block; padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; font-family: var(--font-mono); }
+  .pill.ok { background: var(--color-success-bg); color: var(--color-success-dark); }
+  .pill.limit { background: var(--color-error-bg); color: var(--color-error-dark); }
+  .pill.info { background: var(--color-info-bg); color: var(--color-info-dark); }
+  .pill.prim { background: var(--color-primary-bg); color: var(--color-primary-dark); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+  th { text-align: left; color: var(--color-text-muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--color-border); font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--color-border-light); vertical-align: top; }
+  .mono { font-family: var(--font-mono); }
+
+  .metric { text-align: center; padding: 18px 10px; }
+  .metric .num { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: var(--color-primary); }
+  .metric .cap { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 4px; }
+
+  .decision { border-left: 3px solid var(--color-primary); padding: 10px 14px; background: var(--color-bg-tertiary);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin: 8px 0; font-size: 13.5px; }
+  .decision b { color: var(--color-primary-dark); }
+  ul { margin: 6px 0; padding-left: 20px; font-size: 13.5px; }
+  li { margin: 4px 0; }
+  .cover-center { display: flex; flex-direction: column; justify-content: center; min-height: calc(100vh - 220px); }
+</style>
+</head>
+<body>
+<div class="topbar"><div class="in">
+  <span class="brand">GPU Ops Agent on EKS</span>
+  <span class="title" id="slide-title"></span>
+  <div class="dots" id="dots"></div>
+</div></div>
+
+<div class="deck" id="deck">
+
+<!-- 1. 표지 -->
+<section class="slide" data-title="표지">
+  <div class="cover-center">
+    <div class="kicker">Demo Implementation Report · Phase 1 (Seoul)</div>
+    <h1 style="font-size:40px; line-height:1.2;">GPU 용량·장애 자동 대응<br>AI Agent — 실구현 결과</h1>
+    <p class="sub" style="font-size:16px; margin-top:14px;">EKS · Karpenter · KEDA · Amazon Bedrock AgentCore · Strands Agents · Step Functions</p>
+    <div class="grid3" style="margin-top:26px; max-width:760px;">
+      <div class="card metric"><div class="num">19초</div><div class="cap">알람 → AI 판단 → 리포트<br>전 사이클 무인 완주</div></div>
+      <div class="card metric"><div class="num">6/7</div><div class="cap">Task 완료<br>(Task #1~6, 게임데이만 잔여)</div></div>
+      <div class="card metric"><div class="num">4건</div><div class="cap">문서로는 못 잡았을<br>실측 설계 발견</div></div>
+    </div>
+    <div class="card" style="margin-top:22px;">
+      <table>
+        <tr><th style="width:90px;">구분</th><th>내용</th><th style="width:120px;">상태</th></tr>
+        <tr><td class="mono">Task #1</td><td>데모 EKS 클러스터 + 사다리형 NodePool (g7e Spot MIG → g6e Spot → 온디맨드 상시 폴백·비용 캡)</td><td><span class="pill ok">완료 · 실전 폴백 검증</span></td></tr>
+        <tr><td class="mono">Task #2</td><td>중앙 Valkey 큐 + mock 워커 + KEDA 오토스케일 — E2E 처리·작업 보존(drain 우선 + 반환 폴백) 검증</td><td><span class="pill ok">완료 · 손실 0</span></td></tr>
+        <tr><td class="mono">Task #3</td><td>신호 계층 — 커스텀 메트릭 4종(큐 깊이 · 완료 작업 수 · Pending 워커 · GPU 미광고 노드) · 알람 3종(사다리 소진 · GPU 미광고 · 큐 SLO) · 인시던트 큐 배선</td><td><span class="pill ok">완료 · 배선 E2E</span></td></tr>
+        <tr><td class="mono">Task #4</td><td>도구 Lambda 7종 (읽기 3 + 쓰기 4) + 3중 가드레일 (Policy·코드·RBAC)</td><td><span class="pill ok">완료 · 경계 실증</span></td></tr>
+        <tr><td class="mono">Task #5</td><td>AI Agent (AgentCore + Strands) — 분류·조사·계획 파이프라인</td><td><span class="pill ok">완료 · 오진 방지 실증</span></td></tr>
+        <tr><td class="mono">Task #6</td><td>오케스트레이션 — Gate·Step Functions·자동 원복 (알람→리포트 19초)</td><td><span class="pill ok">완료 · 무인 완주</span></td></tr>
+        <tr><td class="mono">Task #7</td><td>Shadow 측정 + 게임데이 (write 활성화 실전 검증)</td><td><span class="pill info">예정</span></td></tr>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px;">2026-09-22 · 실배포 검증 (ap-northeast-2)</p>
+  </div>
+</section>
+
+<!-- 2. 설계 철학 -->
+<section class="slide" data-title="설계 철학">
+  <div class="kicker">Design Principles</div>
+  <h2>설계 철학 — "결정론은 Karpenter에게, 판단은 Agent에게"</h2>
+  <p class="sub">AI가 인프라를 마음대로 바꾸는 시스템이 아니라, 판단이 필요한 지점에만 AI가 개입하는 시스템입니다.</p>
+
+  <div class="card">
+    <div class="flow">
+      <div class="box ok"><div class="lbl">결정론 계층 (수 초)</div><div class="val">Karpenter · KEDA</div>
+        <div class="note">가용영역 재시도, 사다리 폴백, 큐 기반 확장 — 기계적으로 확실한 대응은 전부 여기서 자동 처리</div></div>
+      <div class="arrow">→</div>
+      <div class="box hl"><div class="lbl">판단 계층 (수 분)</div><div class="val">AI Agent</div>
+        <div class="note">원인 분류(용량? 쿼터? 장애?), 비용이 드는 결정(온디맨드 개방), 추세 해석 — 판단이 필요한 것만</div></div>
+      <div class="arrow">→</div>
+      <div class="box ok"><div class="lbl">실행 계층 (검증)</div><div class="val">Step Functions</div>
+        <div class="note">Agent의 계획(plan)을 화이트리스트 재검증 후 집행 — LLM과 실행 사이에 결정론이 반드시 개입</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>역할 경계 — 무엇이 자동이고, 무엇이 판단인가</h3>
+    <div class="grid2">
+      <div>
+        <div style="font-size:13px; font-weight:700; color:var(--color-success-dark); margin-bottom:8px;">Karpenter · KEDA만으로 처리 (Agent 불개입, 수 초)</div>
+        <ul>
+          <li><b>가용영역 재시도</b> — 한 AZ 실패 시 타 AZ 자동 시도</li>
+          <li><b>상시 사다리 폴백</b> — g7e Spot 부족 → g6e Spot 자동 전환 <span class="pill ok">실전 검증 2초</span></li>
+          <li><b>온디맨드 최종 폴백</b> — Spot 전멸 시 OD 자동 조달 (상시 개방, limits = 비용 캡)</li>
+          <li><b>큐 기반 워커 증감</b> — 큐 깊이 따라 0~max 자동 (KEDA)</li>
+          <li><b>유휴 노드 회수</b> — 빈 노드 30분 후 자동 반납</li>
+        </ul>
+      </div>
+      <div>
+        <div style="font-size:13px; font-weight:700; color:var(--color-primary-dark); margin-bottom:8px;">Agent의 판단이 필요 (수 분)</div>
+        <ul>
+          <li><b>원인 분류</b> — 용량 부족? 쿼터? GPU 스택 장애? (오진 = 최대 낭비)</li>
+          <li><b>OD 잠식 회수 + 예산 감시</b> — Spot 회복 시 OD 워커를 되돌릴지, 비용이 새는지</li>
+          <li><b>노드 보유 연장</b> — 공급 부족 추세 판단 후 회수 지연</li>
+          <li><b>큐 완충</b> — 조달 가능한 수준으로 수요 상한 정렬</li>
+          <li><b>스택 복구</b> — "노드는 정상인데 GPU가 안 보임" 진단·복구</li>
+          <li><b>리전 확장</b> — 언제, 어느 리전을, 어떤 조합으로 열지</li>
+          <li><b>에스컬레이션</b> — 자동 조치가 무의미할 때 구조화 리포트로 사람에게</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout info"><span class="ico">📐</span><div>경계 기준: <b>기계적으로 확실하면 결정론 계층, 상태·비용·추세 판단이 끼면 Agent.</b> 가용성 대응은 전부 결정론 계층이 즉시 처리하고, Agent는 그 뒤에 비용을 회수합니다.</div></div>
+    <div class="callout"><span class="ico">⚖️</span><div><b>결정 필요: SLO 대 비용 우선순위</b> — 본 구성은 <b>가용성 우선</b>(온디맨드 상시 폴백 + 사후 비용 회수)입니다. 비용 우선(온디맨드 잠금 + AI 사전 허가) 구성으로의 전환은 값 하나(limits)이며, 이 우선순위는 고객 사업 판단으로 최종 확정이 필요합니다.</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="step-num">1</span> read / write 비대칭</h3>
+      <ul>
+        <li><b>읽기 도구 3종</b>: Agent가 직접 호출 (MCP Gateway 경유)</li>
+        <li><b>쓰기 도구 4종</b>: Agent는 호출 불가 — <b>Gateway에 등록조차 안 함</b> (호출할 표면 자체가 없음)</li>
+        <li>Agent 산출물은 plan JSON까지 — 실행은 Step Functions가 대행</li>
+      </ul>
+      <div class="callout info"><span class="ico">🛡️</span><div>LLM이 오판·탈취되어도 최악의 결과는 "이상한 계획 문서" — 인프라 변경은 불가능한 구조입니다.</div></div>
+    </div>
+    <div class="card">
+      <h3><span class="step-num">2</span> 3중 가드레일 (write 경로)</h3>
+      <ul>
+        <li><b>1층</b> AgentCore Policy — 도구·파라미터 수준 인가</li>
+        <li><b>2층</b> Lambda 코드 재검증 — 화이트리스트·상한 (LLM 출력 불신)</li>
+        <li><b>3층</b> K8s RBAC — 지정 리소스만 patch 가능 (상시 사다리 불가침)</li>
+      </ul>
+      <div class="callout good"><span class="ico">✅</span><div>모든 조치는 <b>가역적</b>이며 원복(타이머/조건)이 반드시 짝으로 등록됩니다.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. 전체 아키텍처 -->
+<section class="slide" data-title="전체 아키텍처">
+  <div class="kicker">Architecture</div>
+  <h2>전체 아키텍처 — 실배포 구성 (서울)</h2>
+  <p class="sub">알람이 뜨면 사람 손 없이: 게이트(중복 제거) → AI 판단 → (Shadow) 리포트까지 완주합니다.</p>
+
+  <div class="card" style="padding:14px;">
+    <svg viewBox="0 0 1420 920" style="width:100%; height:auto; font-family:var(--font-sans);" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#5e5e5e"/>
+        </marker>
+        <marker id="ahd" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#9ca3af"/>
+        </marker>
+      </defs>
+      <style>
+        .zone { fill:#fafafa; stroke:#9ca3af; stroke-width:1; rx:8; }
+        .zt { font-size:13px; font-weight:700; fill:#374151; }
+        .n  { stroke-width:1; rx:6; }
+        .t  { font-size:11.5px; fill:#131920; }
+        .tb { font-size:12px; font-weight:700; fill:#131920; }
+        .ts { font-size:10px; fill:#5e5e5e; }
+        .e  { stroke:#5e5e5e; stroke-width:1.4; fill:none; marker-end:url(#ah); }
+        .ed { stroke:#9ca3af; stroke-width:1.2; fill:none; marker-end:url(#ahd); stroke-dasharray:5 4; }
+        .el { font-size:10px; fill:#4200db; font-weight:600; }
+      </style>
+
+      <!-- ① 신호 -->
+      <rect class="zone" x="15" y="30" width="235" height="300" rx="8"/>
+      <text class="zt" x="27" y="52">① 신호</text>
+      <rect class="n" x="30" y="66" width="205" height="76" fill="#FFE6CC" stroke="#D79B00" rx="6"/>
+      <text class="tb" x="40" y="84">CloudWatch 알람 3종</text>
+      <text class="ts" x="40" y="100">· 사다리 소진 (Pending 5분)</text>
+      <text class="ts" x="40" y="114">· GPU 미광고 (5분)</text>
+      <text class="ts" x="40" y="128">· 큐 SLO (깊이&gt;40, 10분)</text>
+      <rect class="n" x="30" y="156" width="205" height="46" fill="#FFE6CC" stroke="#D79B00" rx="6"/>
+      <text class="tb" x="40" y="174">EventBridge</text>
+      <text class="ts" x="40" y="190">알람 "상태 전이"만 매칭</text>
+      <rect class="n" x="30" y="216" width="205" height="40" fill="#FFE6CC" stroke="#D79B00" rx="6"/>
+      <text class="tb" x="40" y="234">SQS incidents (+DLQ)</text>
+      <rect class="n" x="30" y="270" width="205" height="44" fill="#DAE8FC" stroke="#6C8EBF" rx="6"/>
+      <text class="tb" x="40" y="288">exporter Lambda (1분)</text>
+      <text class="ts" x="40" y="303">큐 깊이·Pending·GPU 미광고 수집</text>
+      <rect class="n" x="15" y="342" width="235" height="56" fill="#FFF7F0" stroke="#D79B00" stroke-dasharray="6 4" rx="6"/>
+      <text class="tb" x="27" y="360">Scheduler — posture 루프 <tspan class="ts">(Task #8)</tspan></text>
+      <text class="ts" x="27" y="376">30분 주기 · 수요 프로파일+SPS 추세</text>
+      <text class="ts" x="27" y="390">→ 선제 조치 (피크 전 워밍·회수 타이밍)</text>
+
+      <!-- ② 게이트 -->
+      <rect class="zone" x="270" y="30" width="200" height="300" rx="8"/>
+      <text class="zt" x="282" y="52">② 결정론 게이트</text>
+      <rect class="n" x="285" y="66" width="170" height="96" fill="#FFB570" stroke="#D79B00" rx="6"/>
+      <text class="tb" x="295" y="84">Gate Lambda</text>
+      <text class="ts" x="295" y="100">· 중복 제거 (조건부 쓰기)</text>
+      <text class="ts" x="295" y="114">· 쿨다운 30분 · 예산</text>
+      <text class="ts" x="295" y="128">· 컨텍스트 사전 수집</text>
+      <text class="ts" x="295" y="142">· shadow 플래그</text>
+      <rect class="n" x="285" y="176" width="170" height="44" fill="#E1D5E7" stroke="#9673A6" rx="6"/>
+      <text class="tb" x="295" y="194">DynamoDB</text>
+      <text class="ts" x="295" y="209">인시던트·쿨다운·감사</text>
+
+      <!-- ③ SFN -->
+      <rect class="zone" x="490" y="30" width="500" height="300" rx="8"/>
+      <text class="zt" x="502" y="52">③ Step Functions — 흐름 소유 (실행명=incident_id, 멱등)</text>
+      <rect class="n" x="505" y="66" width="180" height="64" fill="#D5E8D4" stroke="#82B366" rx="6"/>
+      <text class="tb" x="515" y="84">InvokeAgent</text>
+      <text class="ts" x="515" y="99">task-token 비동기</text>
+      <text class="ts" x="515" y="113">→ 무과금 대기 (15분 한도)</text>
+      <rect class="n" x="715" y="66" width="120" height="64" fill="#FFF2CC" stroke="#D6B656" rx="6"/>
+      <text class="tb" x="725" y="84">Choice</text>
+      <text class="ts" x="725" y="99">Shadow → 리포트</text>
+      <text class="ts" x="725" y="113">HIGH → 승인</text>
+      <rect class="n" x="855" y="66" width="120" height="64" fill="#FFF2CC" stroke="#D6B656" rx="6"/>
+      <text class="tb" x="865" y="84">Approve</text>
+      <text class="ts" x="865" y="99">사람 승인 대기</text>
+      <text class="ts" x="865" y="113">(무과금, 1h)</text>
+      <rect class="n" x="505" y="160" width="180" height="56" fill="#F8CECC" stroke="#B85450" rx="6"/>
+      <text class="tb" x="515" y="178">Execute (Map 병렬)</text>
+      <text class="ts" x="515" y="193">plan.actions[] 그대로 집행</text>
+      <text class="ts" x="515" y="207">— Agent 미경유</text>
+      <rect class="n" x="715" y="160" width="120" height="56" fill="#D5E8D4" stroke="#82B366" rx="6"/>
+      <text class="tb" x="725" y="178">Verify</text>
+      <text class="ts" x="725" y="193">10분 후 효과 측정</text>
+      <rect class="n" x="855" y="160" width="120" height="56" fill="#D5E8D4" stroke="#82B366" rx="6"/>
+      <text class="tb" x="865" y="178">Report</text>
+      <text class="ts" x="865" y="193">리포트·감사·원복</text>
+      <text class="ts" x="505" y="245">검증 완료: 알람 → 리포트 19초 무인 완주 (Shadow)</text>
+
+      <!-- ④ AgentCore -->
+      <rect class="zone" x="270" y="360" width="720" height="240" rx="8" style="stroke:#1F5B99;"/>
+      <text class="zt" x="282" y="382" style="fill:#1F5B99;">④ Amazon Bedrock AgentCore — 판단 전용</text>
+      <rect class="n" x="285" y="396" width="400" height="110" fill="#ffffff" stroke="#1F5B99" rx="6"/>
+      <text class="tb" x="295" y="414">Runtime — Strands 파이프라인</text>
+      <text class="ts" x="295" y="432">분류 (증거 기반 판정, structured output)</text>
+      <text class="ts" x="295" y="447">→ 조사 (read 도구는 이 단계에만 바인딩)</text>
+      <text class="ts" x="295" y="462">→ 계획 (plan JSON — 도구 없음)</text>
+      <text class="ts" x="295" y="483">완료 시 SendTaskSuccess(plan)로 SFN 재개</text>
+      <rect class="n" x="705" y="396" width="270" height="52" fill="#DAE8FC" stroke="#6C8EBF" rx="6"/>
+      <text class="tb" x="715" y="414">Gateway (MCP) — read 3종만 등록</text>
+      <text class="ts" x="715" y="430">★ write 미등록 = 호출 표면 없음</text>
+      <rect class="n" x="705" y="460" width="270" height="46" fill="#DAE8FC" stroke="#6C8EBF" rx="6"/>
+      <text class="tb" x="715" y="478">Memory · Observability</text>
+      <text class="ts" x="715" y="493">인시던트 이력 · OTEL 감사</text>
+      <rect class="n" x="285" y="522" width="400" height="60" fill="#D5E8D4" stroke="#82B366" rx="6"/>
+      <text class="tb" x="295" y="540">read 도구 Lambda 3종</text>
+      <text class="ts" x="295" y="556">k8s_read (NodeClaim 에러코드 = 판별 근거)</text>
+      <text class="ts" x="295" y="570">cloudwatch_read · spot_price_read</text>
+      <rect class="n" x="705" y="522" width="270" height="60" fill="#F2F7EC" stroke="#5A8F3D" rx="6"/>
+      <text class="tb" x="715" y="540">Amazon Bedrock (Claude)</text>
+      <text class="ts" x="715" y="556">노드별 모델 + prompt caching</text>
+
+      <!-- ⑤ 실행·대상 -->
+      <rect class="zone" x="1010" y="30" width="395" height="860" rx="8"/>
+      <text class="zt" x="1022" y="52">⑤ 실행 · 대상 — 멀티리전 (서울 가동 · 도쿄/뭄바이 Phase 2)</text>
+      <rect class="n" x="1025" y="66" width="365" height="106" fill="#F8CECC" stroke="#B85450" rx="6"/>
+      <text class="tb" x="1035" y="84">write 도구 Lambda 4종 (3중 가드레일)</text>
+      <text class="ts" x="1035" y="100">① OD 상한 조정  ② 노드 보유 연장</text>
+      <text class="ts" x="1035" y="114">③ KEDA 제어 (pause = 리전 게이트)</text>
+      <text class="ts" x="1035" y="128">④ GPU 스택 복구 (라벨 원복·Pod 재생성)</text>
+      <text class="ts" x="1035" y="145">코드 재검증 → Access Entry → RBAC(resourceNames)</text>
+      <text class="ts" x="1035" y="161" style="fill:#4200db; font-weight:600;">cluster 파라미터 = seoul | tokyo | mumbai (env 추가만으로 확장)</text>
+      <rect class="n" x="1025" y="188" width="365" height="188" fill="#FFE6CC" stroke="#D79B00" rx="6"/>
+      <text class="tb" x="1035" y="206">서울 EKS — home (가동 중)</text>
+      <text class="ts" x="1035" y="224">weight 100: g7e Spot + MIG 2슬롯</text>
+      <text class="ts" x="1035" y="238">weight  80: g6e Spot (풀 GPU)</text>
+      <text class="ts" x="1035" y="252">weight  60: 온디맨드 — 상시 폴백 (limits=비용 캡)</text>
+      <text class="ts" x="1035" y="272">KEDA (redis 스케일러, min 0 / max 6)</text>
+      <text class="ts" x="1035" y="286">mock 워커 — drain 우선 종료 + 반환 폴백</text>
+      <text class="ts" x="1035" y="306" style="fill:#00471e;">✓ 실전 ICE 폴백 2초 · MIG 2슬롯 · 작업 손실 0</text>
+      <rect class="n" x="1025" y="392" width="365" height="58" fill="#E1D5E7" stroke="#9673A6" rx="6"/>
+      <text class="tb" x="1035" y="410">ElastiCache Valkey (중앙 큐)</text>
+      <text class="ts" x="1035" y="426">3리전 KEDA가 같은 큐를 공동 소비 — 라우팅 계층 없음</text>
+
+      <!-- Phase 2: 도쿄·뭄바이 (점선 = 예정) -->
+      <rect class="n" x="1025" y="468" width="175" height="108" fill="#FFF7F0" stroke="#D79B00" stroke-dasharray="6 4" rx="6"/>
+      <text class="tb" x="1035" y="486">도쿄 EKS <tspan class="ts">(Phase 2)</tspan></text>
+      <text class="ts" x="1035" y="503">Karpenter 사다리 (축소판)</text>
+      <text class="ts" x="1035" y="518">KEDA pause(0) 어노테이션</text>
+      <text class="ts" x="1035" y="532">= 리전 게이트 닫힘</text>
+      <text class="ts" x="1035" y="549" style="fill:#00471e;">평시 GPU 0대 (system만)</text>
+      <rect class="n" x="1215" y="468" width="175" height="108" fill="#FFF7F0" stroke="#D79B00" stroke-dasharray="6 4" rx="6"/>
+      <text class="tb" x="1225" y="486">뭄바이 EKS <tspan class="ts">(Phase 2)</tspan></text>
+      <text class="ts" x="1225" y="503">Karpenter 사다리 (축소판)</text>
+      <text class="ts" x="1225" y="518">KEDA pause(0) 어노테이션</text>
+      <text class="ts" x="1225" y="532">= 리전 게이트 닫힘</text>
+      <text class="ts" x="1225" y="549" style="fill:#00471e;">SPS 최고점·Spot 최저가 리전</text>
+
+      <!-- 계단식 병렬 개방 주석 -->
+      <rect class="n" x="1025" y="592" width="365" height="86" fill="#e8e6ff" stroke="#8575ff" rx="6"/>
+      <text class="tb" x="1035" y="610" style="fill:#35009e;">리전 확장 = 계단식 병렬 개방 (Agent 판단)</text>
+      <text class="ts" x="1035" y="628">2단계: { 서울 OD ∥ 도쿄 Spot } 동시 개방</text>
+      <text class="ts" x="1035" y="643">3단계: { 도쿄 OD ∥ 뭄바이 Spot } → 4단계 → 에스컬레이션</text>
+      <text class="ts" x="1035" y="661">개방 = pause 해제 하나 · 원복 시 drain으로 작업 손실 0</text>
+      <rect class="n" x="1025" y="700" width="175" height="52" fill="#E1D5E7" stroke="#9673A6" rx="6"/>
+      <text class="tb" x="1035" y="718">SNS 리포트</text>
+      <text class="ts" x="1035" y="734">이메일·승인 요청</text>
+      <rect class="n" x="1215" y="700" width="175" height="52" fill="#DAE8FC" stroke="#6C8EBF" rx="6"/>
+      <text class="tb" x="1225" y="718">원복 Scheduler</text>
+      <text class="ts" x="1225" y="734">결정론 역산·일회성</text>
+
+      <!-- edges -->
+      <path class="e" d="M 137 142 L 137 156"/>
+      <path class="e" d="M 137 202 L 137 216"/>
+      <path class="e" d="M 235 236 L 260 236 L 260 114 L 285 114"/>
+      <path class="ed" d="M 250 370 L 268 370 L 268 152 L 285 152"/><text class="el" x="240" y="415">mode=posture (예산 분리)</text>
+      <path class="e" d="M 370 162 L 370 176"/>
+      <path class="e" d="M 455 98 L 505 98"/><text class="el" x="458" y="92">StartExecution</text>
+      <path class="e" d="M 685 98 L 715 98"/>
+      <path class="e" d="M 835 98 L 855 98"/>
+      <path class="e" d="M 915 130 L 915 145 L 595 145 L 595 160"/>
+      <path class="e" d="M 685 188 L 715 188"/>
+      <path class="e" d="M 835 188 L 855 188"/>
+      <!-- SFN <-> Runtime -->
+      <path class="e" d="M 560 130 L 560 396"/><text class="el" x="418" y="350">① 비동기 invoke (task_token)</text>
+      <path class="ed" d="M 620 396 L 620 130"/><text class="el" x="628" y="350">② SendTaskSuccess(plan)</text>
+      <!-- Runtime -> Gateway -> read tools -->
+      <path class="e" d="M 685 430 L 705 430"/><text class="el" x="688" y="424">MCP</text>
+      <path class="e" d="M 705 448 L 640 448 L 640 522"/>
+      <path class="ed" d="M 485 582 L 485 850 L 1100 850 L 1100 376"/><text class="el" x="640" y="844">읽기 전용 조회 (3리전 EKS·CloudWatch·EC2 — cluster 파라미터)</text>
+      <!-- Runtime -> Bedrock -->
+      <path class="ed" d="M 685 490 L 695 490 L 695 552 L 705 552"/>
+      <!-- Execute -> write -> EKS -->
+      <path class="e" d="M 685 175 L 1025 112"/><text class="el" x="760" y="150">write 직접 호출 — Agent 미경유</text>
+      <path class="e" d="M 1207 172 L 1207 188"/>
+      <!-- Valkey <-> KEDA -->
+      <path class="ed" d="M 1207 392 L 1207 376"/><text class="el" x="1215" y="386">큐 소비</text>
+      <path class="ed" d="M 1112 450 L 1112 468"/>
+      <path class="ed" d="M 1302 450 L 1302 468"/><text class="el" x="1240" y="462">공동 소비 (Phase 2)</text>
+      <!-- exporter reads -->
+      <path class="ed" d="M 137 314 L 137 340 L 1010 340"/>
+      <!-- Report -> SNS / Scheduler -->
+      <path class="e" d="M 975 200 L 995 200 L 995 716 L 1025 716"/>
+      <path class="ed" d="M 995 726 L 1215 726"/><text class="el" x="998" y="762">원복 등록</text>
+    </svg>
+    <p class="ts" style="font-size:11px; color:var(--color-text-muted); margin:8px 4px 0;">실선 = 제어 흐름 · 점선 = 데이터/보조 흐름 · 붉은 계열 = write 경로(가드레일 통과) · 파란 계열 = AgentCore 구성요소</p>
+  </div>
+
+  <div class="card">
+    <h3>두 개의 호출 루프 — 사건 대응과 자세 조정</h3>
+    <table>
+      <tr><th style="width:110px;"></th><th>인시던트 루프 (fast) — 구현·검증 완료</th><th>posture 루프 (slow) — Task #8</th></tr>
+      <tr><td class="mono">트리거</td><td>알람 상태 전이 (사건 발생 시)</td><td>Scheduler 15~30분 주기</td></tr>
+      <tr><td class="mono">목적</td><td>벌어진 문제의 분류·대응</td><td><b>문제가 벌어지기 전</b>의 자세(posture) 조정</td></tr>
+      <tr><td class="mono">Agent 입력</td><td>알람 + 컨텍스트 번들</td><td>수요 프로파일(시간대·요일) + 공급 추세(SPS) + 현 posture</td></tr>
+      <tr><td class="mono">대표 조치</td><td>스택 복구 · 큐 완충 · 에스컬레이션</td><td>피크 전 노드 보유 연장 · OD 잠식 회수 타이밍 · 리전 준비도 점검</td></tr>
+    </table>
+    <div class="callout info"><span class="ico">🔁</span><div>두 루프는 <b>같은 Runtime·같은 판단 파이프라인·같은 가드레일</b>을 공유하고 <b>예산만 분리</b>합니다 — posture 판단이 인시던트 대응 예산을 소모하지 않도록.</div></div>
+  </div>
+
+  <div class="card">
+    <h3>① 신호 → 게이트</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">신호 수집</div><div class="val">exporter Lambda (1분)</div><div class="note">큐 깊이·Pending 워커·GPU 미광고 → CloudWatch 메트릭 4종</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">알람 3종</div><div class="val">사다리 소진 · GPU 미광고 · 큐 SLO</div><div class="note">상태 전이만 EventBridge 매칭 (폭풍 방지)</div></div>
+      <div class="arrow">→</div>
+      <div class="box hl"><div class="lbl">결정론 게이트</div><div class="val">Gate Lambda + DynamoDB</div><div class="note">중복 제거 · 쿨다운 30분 · 컨텍스트 사전 수집</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>② 판단 (AgentCore + Strands)</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">호출</div><div class="val">Step Functions</div><div class="note">task-token 비동기 — Agent가 일하는 동안 무과금 대기</div></div>
+      <div class="arrow">→</div>
+      <div class="box hl"><div class="lbl">3단계 파이프라인</div><div class="val">분류 → 조사 → 계획</div><div class="note">조사 노드에만 read 도구 바인딩 — "조사 없이 액션" 구조적 차단</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">read 도구 (MCP)</div><div class="val">k8s_read · cloudwatch_read · spot_price_read</div><div class="note">NodeClaim 에러 코드 = 판별의 1차 근거</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>③ 실행 → 원복</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">분기</div><div class="val">Shadow / 승인(HIGH) / 실행</div><div class="note">Shadow 모드: 판단까지만, 실행 생략</div></div>
+      <div class="arrow">→</div>
+      <div class="box warn"><div class="lbl">write 도구 4종 (Agent 미경유)</div><div class="val">게이트 개폐 · 노드 보유 · KEDA 제어 · 스택 복구</div><div class="note">3중 가드레일 통과 후 EKS patch</div></div>
+      <div class="arrow">→</div>
+      <div class="box ok"><div class="lbl">종단</div><div class="val">검증 → 리포트 → 원복 예약</div><div class="note">원복은 결정론 역산 (개방→잠금) — AI 재개입 불필요</div></div>
+    </div>
+    <div class="callout"><span class="ico">💡</span><div><b>대상 클러스터</b>: EKS + Karpenter 사다리(g7e Spot MIG → g6e Spot → 온디맨드 게이트) + KEDA(중앙 Valkey 큐) — 고객 환경의 축소 재현. Phase 2에서 도쿄·뭄바이 확장 시에도 이 그림은 그대로, 도구의 cluster 파라미터만 늘어납니다.</div></div>
+  </div>
+</section>
+
+<!-- 4. WP1 -->
+<section class="slide" data-title="Task #1 · 사다리">
+  <div class="kicker">Task #1 · Cluster & Fallback Ladder</div>
+  <h2>사다리형 NodePool — 저비용부터 자동 폴백</h2>
+  <p class="sub">저비용(Spot)부터 시도하고 부족하면 자동으로 다음 계단으로 — 최종 계단(온디맨드)까지 상시 개방하되 limits로 비용을 캡.</p>
+
+  <div class="card">
+    <h3><span class="step-num">D</span> 핵심 설계 결정</h3>
+    <div class="decision"><b>weight 사다리</b> — g7e Spot MIG(100) → g6e Spot(80) → 온디맨드(60, <span class="pill prim">상시 개방 · limits = 비용 캡</span>). 폴백 전 단계가 Karpenter 내장 동작(수 초) — 가용성 대응에 AI 개입 없음. Agent는 사후 비용 회수 담당.</div>
+    <div class="decision"><b>구성 vs 런타임 분리</b> — 사다리 구조·상한은 Git(코드리뷰), 게이트 개폐는 런타임(Agent). 환경 변화가 코드 변경을 유발하지 않는 원칙.</div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">✓</span> 검증 결과 — 첫 배포에서 실전 폴백 발생</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">13:01:03</div><div class="val">g7e Spot 시도</div><div class="note">weight 100 — 사다리 최상단부터</div></div>
+      <div class="arrow">→</div>
+      <div class="box warn"><div class="lbl">13:01:05</div><div class="val">실제 용량 부족 (ICE)</div><div class="note">서울 g7e Spot 실부족 — 인위 아닌 실전</div></div>
+      <div class="arrow">→</div>
+      <div class="box ok"><div class="lbl">13:01:06</div><div class="val">g6e로 자동 폴백</div><div class="note">시도→전환 <b>약 2초</b>, 62초 후 노드 Ready</div></div>
+    </div>
+    <div class="callout good"><span class="ico">📊</span><div>이 실전 ICE는 별도 운영 중인 <b>Spot 확보 확률(SPS) 추적기의 서울 저점 측정과 정합</b> — "점수 저점 = 실확보 실패"의 상관을 보여주는 실측 데이터입니다.</div></div>
+  </div>
+</section>
+
+<!-- 5. WP2 -->
+<section class="slide" data-title="Task #2 · 큐·워커">
+  <div class="kicker">Task #2 · Queue, Worker & KEDA</div>
+  <h2>중앙 큐 + KEDA — 라우팅 계층 없는 멀티리전의 기반</h2>
+  <p class="sub">세 리전의 KEDA가 같은 큐를 바라보므로 "어느 리전이 일하는가"는 게이트 개폐 하나로 결정됩니다.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="step-num">D</span> 설계 결정</h3>
+      <div class="decision"><b>연합(federation) 없는 멀티클러스터</b> — 중앙 Valkey 큐 + 리전별 KEDA. 작업 분배가 자연 발생, 라우팅·스케줄링 계층 자체가 불필요.</div>
+      <div class="decision"><b>작업 보존: drain 우선 + 반환(re-push) 폴백</b> — Valkey는 SQS와 달리 "꺼냄 = 삭제"라 브로커가 작업을 지켜주지 않습니다. 워커가 종료 신호를 받으면: 남은 작업이 짧으면(mesh 생성 20~30초) <b>완주 후 종료(drain)</b> — 낭비 연산·중복 처리 0. 완주 불가 시에만 큐에 반환. Spot 중단 2분 경고·게이트 원복 모두 이 경로.</div>
+    </div>
+    <div class="card">
+      <h3><span class="step-num">✓</span> 검증 결과</h3>
+      <ul>
+        <li>30건 주입 → KEDA 확장 → 사다리 노드 조달 → <b>30건 전원 완주</b> → 워커 0으로 자동 축소</li>
+        <li>g7e MIG 검증 완결: 슬롯 2개 광고, 워커 2개 동거 (40GB급 모델 2개 = 인스턴스 1대)</li>
+        <li><b>작업 보존 실증</b>: 처리 중 강제 축소 → 미완료 작업 전량 큐 복귀 = <span class="pill ok">손실 0</span> (이후 drain 우선으로 개선 — 짧은 작업은 완주 후 종료, 반환은 안전망)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">!</span> 실측 발견 2건 — 문서 설계를 실물이 교정</h3>
+    <table>
+      <tr><th>발견</th><th>설계 가정</th><th>실측</th><th>반영</th></tr>
+      <tr><td><b>limits는 광고 슬롯 기준</b></td><td class="mono">gpu: 2 = 노드 2대</td><td class="mono" style="color:var(--color-error-dark);">MIG 노드 1대가 예산 2 소비</td><td>설계서 §2.1 정정, 예산 산식 변경</td></tr>
+      <tr><td><b>KEDA max=0 불가</b></td><td>리전 게이트 닫힘 = max 0</td><td class="mono" style="color:var(--color-error-dark);">CRD가 max ≥ 1 강제</td><td>게이트 = pause 어노테이션으로 재설계 (write 도구 계약 변경)</td></tr>
+    </table>
+    <div class="callout"><span class="ico">⚠️</span><div>이 두 건이 <b>데모의 존재 가치</b>입니다 — Agent가 잘못된 API 계약으로 구현될 뻔한 것을 write 활성화 전에 잡았습니다.</div></div>
+  </div>
+</section>
+
+<!-- 6. WP3 -->
+<section class="slide" data-title="Task #3 · 신호">
+  <div class="kicker">Task #3 · Signal Layer</div>
+  <h2>신호 계층 — Valkey 큐에는 CloudWatch가 없다</h2>
+  <p class="sub">SQS와 달리 Valkey는 네이티브 메트릭이 없으므로, exporter가 알람 계층의 전제 조건입니다.</p>
+
+  <div class="card">
+    <h3>알람 3종 — 무엇을, 왜 그 조건으로 감지하나</h3>
+    <table>
+      <tr><th style="width:150px;">알람</th><th style="width:250px;">조건</th><th>의미와 예시</th></tr>
+      <tr>
+        <td><b>사다리 소진</b><br><span class="pill limit">Agent 트리거</span></td>
+        <td class="mono" style="font-size:12px;">Pending 워커 ≥ 1<br>5분 연속 (Minimum 통계)</td>
+        <td>Karpenter가 5분간 못 채움 = 전 계단 실패 추정. <b>정상 조달이 1~2분임을 실측</b>했으므로 5분은 신뢰할 수 있는 경계 — 순간 Pending은 무시.<br>
+        <span style="color:var(--color-text-secondary); font-size:12.5px;">예: 큐 급증으로 워커 6개 요청 → Spot 두 풀 소진 + 온디맨드 캡 도달 → 2개가 5분째 Pending → 알람 → Agent가 원인(용량? 쿼터?) 분류.</span></td>
+      </tr>
+      <tr>
+        <td><b>GPU 미광고</b><br><span class="pill limit">Agent 트리거</span></td>
+        <td class="mono" style="font-size:12px;">Ready 노드 중<br>GPU 0개 광고 ≥ 1대, 5분</td>
+        <td>"노드는 살아있는데 GPU가 안 보임" = 용량이 아니라 <b>GPU 소프트웨어 스택 장애</b>. 정상 MIG 분할이 40초라 5분이면 확실한 이상 — 용량 오진 방지의 핵심 신호.<br>
+        <span style="color:var(--color-text-secondary); font-size:12.5px;">예: MIG 설정 오타 배포 → 분할 실패(state=failed) → 노드 Ready·GPU 0 → 알람 → Agent가 라벨 원복 계획 (40초 복구).</span></td>
+      </tr>
+      <tr>
+        <td><b>큐 SLO</b><br><span class="pill limit">Agent 트리거</span></td>
+        <td class="mono" style="font-size:12px;">큐 깊이 &gt; 40<br>10분 지속</td>
+        <td>워커가 돌아도 <b>수요가 공급을 구조적으로 초과</b>하는 상태 — 일시 스파이크(수 분 내 소화)와 구분하기 위해 10분.<br>
+        <span style="color:var(--color-text-secondary); font-size:12.5px;">예: 이벤트로 큐 100건 유입, 워커 풀가동에도 10분간 40 이상 유지 → 알람 → Agent가 큐 완충·리전 확장 검토.</span></td>
+      </tr>
+    </table>
+    <div class="callout info"><span class="ico">🔔</span><div>공통 원칙: 알람의 <b>상태 전이(OK→ALARM)만</b> 이벤트화 — 같은 장애가 인시던트 폭풍이 되지 않습니다. 재발성은 게이트의 쿨다운(30분)이 별도로 흡수합니다.</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="step-num">D</span> 설계 결정</h3>
+      <div class="decision"><b>exporter Lambda가 K8s API를 직접 조회</b> — Prometheus 스택 없이 Pending 워커·GPU 미광고를 메트릭화. 이 접근 패턴(토큰 생성 + Access Entry)이 그대로 read 도구의 기반이 됨.</div>
+      <div class="decision"><b>"사다리 소진" = Pending 5분 지속</b> — 정상 조달이 1~2분임을 실측했으므로, 5분 Pending은 소진/실패의 신뢰할 수 있는 근사.</div>
+    </div>
+    <div class="card">
+      <h3><span class="step-num">✓</span> 검증 + 트러블슈팅 3건</h3>
+      <ul>
+        <li>메트릭 4종 수집 + 알람→EventBridge→SQS 배선 E2E 확인</li>
+        <li>VPC Lambda → EKS 프라이빗 엔드포인트는 <b>클러스터 SG 443 허용 필수</b> (도구 7종 공통 경로 — 선행 해결)</li>
+        <li>관리형 View 정책은 nodes 등 클러스터 리소스 미커버 → <b>커스텀 RBAC 패턴 확립</b></li>
+        <li>로컬 Helm 차트는 파일 추가만으론 변경 미감지 → 버전 bump 규칙화</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 7. WP4 -->
+<section class="slide" data-title="Task #4 · 도구">
+  <div class="kicker">Task #4 · Tools & Guardrails</div>
+  <h2>도구 7종 — 가드레일이 실제로 막는지 시험했습니다</h2>
+  <p class="sub">read 3종(진단) + write 4종(제어 항목과 1:1). 가드레일 자체가 검증 대상이므로 상한은 데모에서도 실값.</p>
+
+  <div class="card">
+    <h3><span class="step-num">D</span> 설계 결정 — IAM부터 갈라지는 read/write</h3>
+    <div class="flow">
+      <div class="box ok"><div class="lbl">read 롤</div><div class="val">읽기 전용 RBAC 그룹</div><div class="note">nodeclaims 에러 코드·사다리 상태·메트릭 — LLM용 요약 반환(토큰 절약)</div></div>
+      <div class="box warn"><div class="lbl">write 롤</div><div class="val">resourceNames 한정 RBAC</div><div class="note">사다리 3풀·지정 ScaledObject·2개 네임스페이스만 — 그 외는 API 서버가 403</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>도구 7종 — 각각 무엇을 하나</h3>
+    <table>
+      <tr><th style="width:180px;">도구</th><th style="width:70px;">유형</th><th>하는 일</th><th style="width:230px;">경계 (누가 어디까지)</th></tr>
+      <tr>
+        <td class="mono">k8s_read</td><td><span class="pill ok">read</span></td>
+        <td>NodeClaim·NodePool·노드·Pod·이벤트 조회. <b>NodeClaim의 launch 에러 코드가 판별의 1차 근거</b> (용량 부족 vs 쿼터를 여기서 구분). 원본 JSON 수십 KB를 LLM용 요약으로 압축 반환</td>
+        <td>읽기 전용 RBAC · cluster 파라미터 화이트리스트 (seoul → Phase 2에서 tokyo/mumbai 추가)</td>
+      </tr>
+      <tr>
+        <td class="mono">cloudwatch_read</td><td><span class="pill ok">read</span></td>
+        <td>큐 깊이·Pending 워커·GPU 미광고 시계열 + <b>Spot 확보 확률(SPS) 추적 데이터</b> — 수요가 실재하는지, 공급 추세가 어떤지</td>
+        <td>지정 네임스페이스 메트릭만 조회</td>
+      </tr>
+      <tr>
+        <td class="mono">spot_price_read</td><td><span class="pill ok">read</span></td>
+        <td>GPU 타입별 Spot 시세와 온디맨드 대비 비율 — <b>가격 역전 판정</b>(비율 ≥ 1.0)과 조치 비용 추정</td>
+        <td>가격 조회 전용 권한</td>
+      </tr>
+      <tr>
+        <td class="mono">patch_nodepool_limits</td><td><span class="pill limit">write</span></td>
+        <td><b>제어 항목 #1</b> — 온디맨드 폴백 풀의 비용 상한(캡) 조정. 상시 개방 구성에서는 사용 드묾 (비용 비상 시 축소)</td>
+        <td>폴백 풀만 (상시 Spot 풀 limits는 코드가 거부 — "불가침") · 상한 2 초과 불가</td>
+      </tr>
+      <tr>
+        <td class="mono">patch_consolidate_after</td><td><span class="pill limit">write</span></td>
+        <td><b>#2</b> — 확보한 노드의 보유 시간 연장 (평시 30분 → 최대 12h). 공급 부족·피크 전 "성급한 반납 → 재확보 실패" 방어</td>
+        <td>사다리 3풀만 · 12h 상한 · fail-safe 방향(회수 지연)이라 최저 위험</td>
+      </tr>
+      <tr>
+        <td class="mono">patch_keda_max</td><td><span class="pill limit">write</span></td>
+        <td><b>#3</b> — 수요 완충(max 조정: 조달 가능한 수준으로 상한 정렬) + <b>리전 게이트</b>(pause/unpause 어노테이션 — Phase 2 도쿄·뭄바이 개폐)</td>
+        <td>지정 ScaledObject만 · max 1~8 범위 (CRD 제약 실측 반영)</td>
+      </tr>
+      <tr>
+        <td class="mono">recover_gpu_stack</td><td><span class="pill limit">write</span></td>
+        <td><b>#4</b> — GPU 스택 복구: MIG 라벨 원복(재분할 ~40초) · 오염 Pod 재생성. "노드 교체 없이 복구"가 요점 — 용량 조치 대비 비용 0</td>
+        <td>GPU 노드만 · 검증된 MIG 프로파일만 · 지정 네임스페이스만</td>
+      </tr>
+    </table>
+    <div class="callout info"><span class="ico">🔧</span><div>read 3종은 Agent가 직접(MCP), write 4종은 <b>Step Functions만</b> 호출합니다. 모든 도구가 호출 전 파라미터를 코드로 재검증하며(LLM 출력 불신), 원복(Scheduler 역산)도 같은 write 도구·같은 가드레일을 재사용합니다.</div></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">✓</span> 경계 위반 실기 검증</h3>
+    <table>
+      <tr><th>시험</th><th>결과</th></tr>
+      <tr><td>순수 검증 함수 경계 테스트 16종 (상한 초과·미허용 풀·형식 오류...)</td><td><span class="pill ok">16/16 통과</span></td></tr>
+      <tr><td>상시 Spot 풀에 limits 변경 시도 (2층: 코드)</td><td><span class="pill limit">거부</span> <span class="mono" style="font-size:12px;">"상시 사다리 불가침"</span></td></tr>
+      <tr><td>허용된 풀 patch / delete 시도 / 시스템 NS Pod 삭제 (3층: RBAC)</td><td><span class="pill ok">yes</span> <span class="pill limit">no</span> <span class="pill limit">no</span> — 정확히 설계대로</td></tr>
+      <tr><td>write 정상 경로 (노드 보유 시간 왕복 변경)</td><td><span class="pill ok">before/after 반환 + 감사 로그</span></td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- 8. WP5 -->
+<section class="slide" data-title="Task #5 · Agent">
+  <div class="kicker">Task #5 · AgentCore + Strands Agent</div>
+  <h2>판단 파이프라인 — 첫 시험에서 오진을 거부했습니다</h2>
+  <p class="sub">분류 → 조사 → 계획의 3단계. 조사 노드에만 도구가 있어 "조사 없이 액션"이 구조적으로 불가능합니다.</p>
+
+  <div class="card" style="padding:14px;">
+    <h3 style="margin-top:4px;">판단 파이프라인 구조 (pipeline.py) — multi-agent가 아니라 역할 분리된 순차 워크플로</h3>
+    <svg viewBox="0 0 1300 372" style="width:100%; height:auto; font-family:var(--font-sans);" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="pah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#5e5e5e"/>
+        </marker>
+        <marker id="pahd" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+          <polygon points="0 0, 9 3.5, 0 7" fill="#9ca3af"/>
+        </marker>
+      </defs>
+      <style>
+        .pn { stroke-width:1.2; rx:8; }
+        .pt { font-size:12.5px; font-weight:700; fill:#131920; }
+        .pl { font-size:10.5px; fill:#9ca3af; text-transform:uppercase; letter-spacing:.04em; }
+        .px { font-size:11px; fill:#5e5e5e; }
+        .pe { stroke:#5e5e5e; stroke-width:1.5; fill:none; marker-end:url(#pah); }
+        .ped { stroke:#9ca3af; stroke-width:1.3; fill:none; marker-end:url(#pahd); stroke-dasharray:5 4; }
+        .pel { font-size:10.5px; fill:#4200db; font-weight:600; }
+      </style>
+
+      <!-- 입력 -->
+      <rect class="pn" x="20" y="86" width="165" height="96" fill="#f9fafb" stroke="#d1d5db"/>
+      <text class="pl" x="32" y="106">입력 (SFN에서)</text>
+      <text class="pt" x="32" y="126">알람 + 컨텍스트 번들</text>
+      <text class="px" x="32" y="144">+ task_token (비동기)</text>
+
+      <!-- 단계 1 -->
+      <rect class="pn" x="235" y="64" width="255" height="140" fill="#ffffff" stroke="#1F5B99"/>
+      <text class="pl" x="247" y="84">단계 1 — Agent 인스턴스 ①</text>
+      <text class="pt" x="247" y="104">분류 (장애 분류 전문가)</text>
+      <text class="px" x="247" y="122">프롬프트: 판별 규칙 (에러 코드 1차 근거)</text>
+      <text class="px" x="247" y="137">도구: ❌ 없음 — 번들 증거만</text>
+      <text class="px" x="247" y="152">출력: Classification 스키마 (강제)</text>
+      <text class="px" x="247" y="170" style="fill:#35009e;">유형 · 확신도 · 조사 필요 여부</text>
+
+      <!-- 단계 2 -->
+      <rect class="pn" x="540" y="64" width="255" height="140" fill="#ffffff" stroke="#1F5B99"/>
+      <text class="pl" x="552" y="84">단계 2 — Agent 인스턴스 ② (조건부)</text>
+      <text class="pt" x="552" y="104">조사 (조사관)</text>
+      <text class="px" x="552" y="122">프롬프트: 최소 호출·결정적 증거만</text>
+      <text class="px" x="552" y="137">도구: ✅ read 3종 — 이 단계에만 바인딩</text>
+      <text class="px" x="552" y="152">"조치 제안 금지" (역할 침범 차단)</text>
+      <text class="px" x="552" y="170" style="fill:#35009e;">출력: 증거 요약</text>
+
+      <!-- 단계 3 -->
+      <rect class="pn" x="845" y="64" width="255" height="140" fill="#ffffff" stroke="#1F5B99"/>
+      <text class="pl" x="857" y="84">단계 3 — Agent 인스턴스 ③</text>
+      <text class="pt" x="857" y="104">계획 (대응 계획가)</text>
+      <text class="px" x="857" y="122">프롬프트: "실행 권한 없음" + 정책·계약</text>
+      <text class="px" x="857" y="137">도구: ❌ 없음 — 산출물은 계획서뿐</text>
+      <text class="px" x="857" y="152">출력: Plan JSON 스키마 (강제)</text>
+      <text class="px" x="857" y="170" style="fill:#35009e;">시나리오·조치·위험도·원복</text>
+
+      <!-- 출력 -->
+      <rect class="pn" x="1150" y="86" width="130" height="96" fill="#e6f5eb" stroke="#b3d9bf"/>
+      <text class="pl" x="1162" y="106">출력 (SFN으로)</text>
+      <text class="pt" x="1162" y="126">plan JSON</text>
+      <text class="px" x="1162" y="144">SendTaskSuccess</text>
+      <text class="px" x="1162" y="159">→ 재검증 후 집행</text>
+
+      <!-- read 도구 -->
+      <rect class="pn" x="540" y="266" width="255" height="66" fill="#e6f5eb" stroke="#82B366"/>
+      <text class="pt" x="552" y="288">read 도구 3종 (MCP Gateway)</text>
+      <text class="px" x="552" y="305">k8s_read · cloudwatch_read · spot_price_read</text>
+      <text class="px" x="552" y="320">호출 상한 있음 · write 도구는 표면 자체가 없음</text>
+
+      <!-- 엣지 -->
+      <path class="pe" d="M 185 134 L 235 134"/>
+      <path class="pe" d="M 490 134 L 540 134"/><text class="pel" x="494" y="126">코드가 전이</text>
+      <path class="pe" d="M 795 134 L 845 134"/><text class="pel" x="799" y="126">코드가 전이</text>
+      <path class="pe" d="M 1100 134 L 1150 134"/>
+      <path class="ped" d="M 362 204 L 362 236 L 972 236 L 972 204"/><text class="pel" x="560" y="230">확신 충분(≥0.8) → 조사 생략</text>
+      <path class="pe" d="M 667 204 L 667 266"/><text class="pel" x="675" y="240">MCP</text>
+
+      <text class="px" x="235" y="350" style="font-weight:600; fill:#374151;">특징: 단계 전이는 LLM이 아니라 코드가 결정 (파이프라인 자체는 결정론) · 각 단계 = 별도 프롬프트·도구·출력 스키마 · 도구가 조사에만 있어 "조사 없이 액션"이 구조적으로 불가</text>
+      <text class="px" x="235" y="368">모델: <tspan style="font-weight:600;">Claude Sonnet 4.6</tspan> (Amazon Bedrock 글로벌 프로파일 · prompt caching — 반복 호출 시 캐시 히트 토큰 ~10% 가격) · 모델 교체는 변수 하나 (코드 무변경) · 차기: 조사 단계 경량 모델 분리 검토</text>
+    </svg>
+  </div>
+
+  <div class="card">
+    <h3>System Prompt 요지 — 단계별로 다른 역할, 다른 규율</h3>
+    <div class="grid3">
+      <div class="box" style="min-width:0;">
+        <div class="lbl">단계 1 · 분류 (도구 없음)</div>
+        <div class="val">"장애 분류 전문가"</div>
+        <ul style="font-size:12.5px; padding-left:16px;">
+          <li>NodeClaim <b>에러 코드가 1차 근거</b></li>
+          <li>쿼터 초과 ↔ 용량 부족 <b>절대 혼동 금지</b> ("쿼터에 게이트를 열면 비용만 쓰고 해결 안 됨")</li>
+          <li>노드 Ready + GPU 0 = 용량 아님, <b>스택 문제</b></li>
+          <li>확신 없으면 <span class="mono" style="font-size:11px;">needs_investigation=true</span> — <b>오진이 가장 큰 낭비</b></li>
+        </ul>
+      </div>
+      <div class="box" style="min-width:0;">
+        <div class="lbl">단계 2 · 조사 (read 도구 바인딩)</div>
+        <div class="val">"조사관"</div>
+        <ul style="font-size:12.5px; padding-left:16px;">
+          <li><b>최소 호출로 결정적 증거만</b> — 가설을 확증/반증하는 데 필요한 것만 조회</li>
+          <li>필수 확인 3종: NodeClaim 에러 코드 · 사다리 소진 여부(limit vs 사용량) · 큐 추세(수요 실재)</li>
+          <li><b>조치 제안 금지</b> — "그것은 다음 단계의 일" (역할 침범 차단)</li>
+        </ul>
+      </div>
+      <div class="box" style="min-width:0;">
+        <div class="lbl">단계 3 · 계획 (도구 없음)</div>
+        <div class="val">"대응 계획가"</div>
+        <ul style="font-size:12.5px; padding-left:16px;">
+          <li>첫 문장이 <b>"당신은 실행 권한이 없습니다"</b> — 계획은 별도 시스템이 재검증 후 집행</li>
+          <li>도메인 지식 명시: 온디맨드 폴백은 <b>상시 개방이 정상</b> · 잠식 회수는 Spot 회복 증거 시에만(관망이 기본) · <b>해소된 인시던트엔 조치 금지</b></li>
+          <li>제어 항목 4종의 <b>정확한 호출 계약</b>(키·값 형식) + 위반 시 어차피 코드가 거부</li>
+          <li>모든 조치에 rollback 서술 필수 · 확신 없으면 에스컬레이션</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout info"><span class="ico">📜</span><div>프롬프트는 <b>설계 문서의 정책 조항을 코드화</b>한 것입니다 — "쿼터 → 재시도 무의미", "관망이 기본" 같은 운영 규율이 그대로 들어가며, Git 코드리뷰 대상입니다. 아래 검증 ②의 오판 교정도 프롬프트에 도메인 지식 3줄을 추가한 것이었습니다.</div></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">✓</span> 지능 검증 ① — 쿼터 오진 방지 (분류 가치가 가장 큰 시험)</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">투입</div><div class="val">쿼터 초과 에러 + 큐 45건 적체</div><div class="note">순진한 시스템이라면 "큐가 쌓였으니 온디맨드 개방"으로 갈 상황</div></div>
+      <div class="arrow">→</div>
+      <div class="box hl"><div class="lbl">판정 (확신도 0.97)</div><div class="val">"쿼터 초과 — 용량 문제와 완전히 다른 원인"</div><div class="note">actions: 0건 · 에스컬레이션 리포트 + 인적 조치 안내</div></div>
+    </div>
+    <div class="callout good"><span class="ico">🎯</span><div>"쿼터 문제에 게이트를 열면 비용만 쓰고 해결되지 않는다" — 정책이 판단으로 실행된 첫 사례.</div></div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">✓</span> 지능 검증 ② — 오판 → 교정 사이클 (Shadow 모드의 존재 이유)</h3>
+    <table>
+      <tr><th>단계</th><th>내용</th></tr>
+      <tr><td>조사</td><td>빈약한 알람만 주자 스스로 read 도구로 증거 5종 수집 — <b>40분 전 수요 급증과 알람의 시간 상관까지 발견</b></td></tr>
+      <tr><td style="color:var(--color-error-dark);">오판</td><td>"게이트 limits=0 = 봉쇄 장애"로 진단, 불필요한 온디맨드 개방 계획 (limits=0은 의도된 평시 상태)</td></tr>
+      <tr><td>교정</td><td>프롬프트에 도메인 지식 보강 (게이트 0=정상 · 해소된 인시던트 조치 금지) → 재시험 <span class="pill ok">"조치 불필요" 정답</span></td></tr>
+    </table>
+    <div class="callout"><span class="ico">💡</span><div>실행 권한이 있었다면 <b>시간당 $4짜리 오판</b>이었습니다. 이것이 write를 켜기 전 Shadow 모드로 판단 품질을 채점해야 하는 이유의 실물 증거입니다.</div></div>
+  </div>
+</section>
+
+<!-- 9. WP6 -->
+<section class="slide" data-title="Task #6 · 오케스트레이션">
+  <div class="kicker">Task #6 · Orchestration</div>
+  <h2>Step Functions — 알람에서 리포트까지 19초</h2>
+  <p class="sub">판단은 Agent가, 흐름(대기·분기·병렬·재시도)은 Step Functions가 소유합니다.</p>
+
+  <div class="card">
+    <h3><span class="step-num">D</span> 설계 결정</h3>
+    <div class="decision"><b>task-token 비동기</b> — Agent가 조사하는 수 분, 승인자가 응답하는 수 시간 동안 <b>무과금 대기</b>. Agent는 완료 시 콜백으로 재개.</div>
+    <div class="decision"><b>원복은 결정론 역산</b> — 실행된 조치에서 역조치(개방→잠금)를 자동 계산해 타이머 예약. 원복에 AI 재개입 불필요, 실행과 같은 가드레일 통과.</div>
+    <div class="decision"><b>Shadow 플래그</b> — 스위치 하나로 "판단까지만" ↔ "실행까지" 전환. write 신뢰는 단계적으로 이전.</div>
+  </div>
+
+  <div class="card">
+    <h3><span class="step-num">✓</span> E2E 검증 — 무인 완주</h3>
+    <div class="flow">
+      <div class="box"><div class="lbl">02:43:09</div><div class="val">알람 전이</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">게이트</div><div class="val">인시던트 생성</div><div class="note">이후 중복 2건은 쿨다운으로 억제 ✓</div></div>
+      <div class="arrow">→</div>
+      <div class="box hl"><div class="lbl">AI 판단</div><div class="val">"인위적 테스트 전이" 식별</div><div class="note">알람 사유의 "wiring test" 문구 + 메트릭 전 구간 0 교차 확인</div></div>
+      <div class="arrow">→</div>
+      <div class="box ok"><div class="lbl">02:43:28</div><div class="val">리포트 + 감사 기록</div><div class="note">이메일 발송 · DynamoDB 저장 · <b>총 19초</b></div></div>
+    </div>
+    <div class="callout good"><span class="ico">🤖</span><div>거짓 알람에조차 침착한 시스템 — Agent가 "실제 장애가 아닌 배선 테스트"임을 스스로 밝혀내고 조치를 내리지 않았습니다.</div></div>
+  </div>
+</section>
+
+<!-- 10. 실측 발견 종합 -->
+<section class="slide" data-title="실측 발견">
+  <div class="kicker">What the Demo Taught Us</div>
+  <h2>실측 발견 종합 — 데모가 설계를 4번 고쳤습니다</h2>
+  <p class="sub">전부 write 활성화 <b>이전에</b> 발견되어 무비용으로 교정됐습니다. 문서 리뷰로는 잡을 수 없던 것들입니다.</p>
+
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>발견</th><th>영향</th><th>교정</th></tr>
+      <tr><td>1</td><td><b>Karpenter limits는 광고 슬롯 기준 집계</b> — MIG 노드 1대가 "노드 2대 몫" 예산 소비</td><td>비용 상한 산식 오류</td><td>설계서 정정 + 예산 값 재산정</td></tr>
+      <tr><td>2</td><td><b>KEDA CRD가 maxReplicaCount ≥ 1 강제</b> — "max=0 게이트" 불가</td><td>리전 게이트 메커니즘 무효</td><td>pause 어노테이션으로 재설계 (공식 메커니즘)</td></tr>
+      <tr><td>3</td><td><b>관리형 EKS View 정책은 클러스터 리소스 미커버</b> (nodes 403)</td><td>read 도구 인가 실패</td><td>커스텀 RBAC + 그룹 매핑 패턴 확립</td></tr>
+      <tr><td>4</td><td><b>Agent의 도메인 전제 결핍</b> — "닫힌 게이트 = 장애" 오판</td><td>불필요 온디맨드 개방 ($4/hr)</td><td>프롬프트 도메인 지식 보강 + Shadow 채점 체계</td></tr>
+    </table>
+    <div class="callout info"><span class="ico">📌</span><div>공통 패턴: <b>"설계 문서 → 실물 → 문서 정정"의 루프가 빠를수록 싸다.</b> 4건 모두 데모 비용 수십 달러 안에서 잡혔습니다.</div></div>
+  </div>
+</section>
+
+<!-- 11. 다음 단계 -->
+<section class="slide" data-title="다음 단계">
+  <div class="kicker">Next Steps</div>
+  <h2>다음 단계 — 신뢰의 단계적 이전</h2>
+  <p class="sub">지금 이 순간에도 Shadow 모드가 판단 데이터를 쌓고 있습니다. write 권한은 증거가 쌓인 순서로 켭니다.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3><span class="step-num">7</span> Task #7 — Shadow 측정 + 게임데이</h3>
+      <ul>
+        <li><b>Shadow 관찰</b>: 실전 알람에 대한 plan 품질 축적 + AgentCore Evaluations 자동 채점 (도구 선택·파라미터 정확도)</li>
+        <li><b>게임데이 A</b> (저위험 write 첫 활성화): MIG 설정 오류 주입 → GPU 미광고 → <b>스택 복구 40초</b> 자동 실행</li>
+        <li><b>게임데이 B</b>: Spot 소진 + 큐 주입 → 온디맨드 자동 폴백 → Spot 회복 후 <b>Agent의 OD 잠식 회수</b>까지 E2E</li>
+        <li><b>수요 추세 반영 (Task #8)</b>: 시간대·요일 수요 프로파일 분석 → 피크 전 선제 워밍·회수 타이밍 판단 (실운영 로그 협조 요청)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="step-num">2</span> Phase 2 — 도쿄·뭄바이 확장</h3>
+      <ul>
+        <li>VPC 피어링 + ECR 복제 → 도쿄 클러스터 (게이트 닫힘 = GPU 0대 상주)</li>
+        <li><b>계단식 병렬 개방</b>: {서울 온디맨드 ∥ 도쿄 Spot} 동시 — 실제 채움은 가용성이 결정</li>
+        <li>핵심 측정: 리전 원복 시 <b>작업 손실 0 + drain 완주율</b> (보존 메커니즘은 서울에서 기실증)</li>
+        <li>Terraform 리전 변수화로 뭄바이는 기계적 복제</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Shadow 모드란 — 판단은 전부 하고, 실행만 하지 않는다</h3>
+    <div class="grid2">
+      <div>
+        <ul>
+          <li><b>동작</b>: 실제 알람마다 Agent가 분류·조사·계획까지 수행하되, 실행 단계를 건너뛰고 <b>리포트만</b> 발송 (Step Functions 플래그 하나 — 인프라는 무변경)</li>
+          <li><b>측정</b>: 계획서와 사람 판단을 대조해 분류 정확도·조치 적절성을 채점 — AgentCore Evaluations로 자동화 (도구 선택·파라미터 정확도)</li>
+          <li><b>졸업</b>: 정확도 기준 충족 시 저위험 write부터 단계적 활성화 (아래 로드맵)</li>
+        </ul>
+      </div>
+      <div>
+        <div class="decision" style="margin-top:0;"><b>왜 필요한가 — 실수 비용의 비대칭</b><br>
+        읽기 실수는 공짜지만 쓰기 실수는 시간당 과금(온디맨드)이거나 서비스 영향입니다. Shadow는 read/write 비대칭 설계의 <b>시간 축 버전</b> — "쓰기 능력은 만들어두되, 권한은 증거가 쌓인 뒤에".</div>
+        <div class="callout" style="margin-top:10px;"><span class="ico">💡</span><div>실물 증거는 Task #5에서: Agent의 오판(불필요한 온디맨드 개방 계획)이 Shadow였기에 <b>비용 0원의 리포트</b>로 끝났고, 프롬프트 교정으로 이어졌습니다.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>승격 로드맵</h3>
+    <div class="flow">
+      <div class="box hl"><div class="lbl">현재</div><div class="val">Shadow</div><div class="note">판단만, 실행 없음</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">1단계</div><div class="val">저위험 write</div><div class="note">스택 복구 · 큐 완충</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">2단계</div><div class="val">OD 잠식 회수</div><div class="note">Spot 회복 증거 기반</div></div>
+      <div class="arrow">→</div>
+      <div class="box"><div class="lbl">3단계</div><div class="val">리전 확장</div><div class="note">계단식 병렬</div></div>
+    </div>
+  </div>
+  <p class="sub" style="margin-top:18px; text-align:center;">상세 설계: <span class="mono">gpu-agent-unified-design.md</span></p>
+</section>
+
+</div>
+
+<div class="navbtns">
+  <button class="navbtn" onclick="nav(-1)">← 이전</button>
+  <button class="navbtn" onclick="nav(1)">다음 →</button>
+</div>
+<div class="pageno" id="pageno"></div>
+
+<script>
+const slides = [...document.querySelectorAll('.slide')];
+const dots = document.getElementById('dots');
+slides.forEach((s, i) => {
+  const d = document.createElement('button');
+  d.className = 'dot'; d.title = s.dataset.title;
+  d.onclick = () => go(i);
+  dots.appendChild(d);
+});
+let cur = 0;
+function go(i) {
+  cur = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, j) => s.classList.toggle('active', j === cur));
+  [...dots.children].forEach((d, j) => d.classList.toggle('on', j === cur));
+  document.getElementById('slide-title').textContent = slides[cur].dataset.title;
+  document.getElementById('pageno').textContent = (cur + 1) + ' / ' + slides.length;
+  window.scrollTo(0, 0);
+  location.hash = cur + 1;
+}
+function nav(d) { go(cur + d); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') nav(1);
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') nav(-1);
+  if (e.key === 'Home') go(0);
+  if (e.key === 'End') go(slides.length - 1);
+});
+go(parseInt(location.hash.slice(1) || '1') - 1);
+</script>
+</body>
+</html>

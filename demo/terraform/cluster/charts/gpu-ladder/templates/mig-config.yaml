@@ -1,0 +1,49 @@
+{{- /*
+=============================================================================
+custom-mig-config — MIG 분할 "레시피" (nvidia-mig-parted 포맷)
+=============================================================================
+동작 흐름:
+  1) 노드에 nvidia.com/mig.config=<프로파일명> 라벨이 붙으면
+  2) MIG Manager가 이 ConfigMap에서 같은 이름의 항목을 찾아
+  3) nvidia-mig-parted로 GPU를 해당 구성으로 분할한다
+     (필요 시 GPU reset/재부팅 — 실측에서는 idle GPU라 40초, 무재부팅)
+
+프로파일명 규칙 <slices>g.<memory>gb:
+  2g.48gb = 컴퓨트 슬라이스 2/4 + 메모리 48GB
+  RTX PRO 6000 Blackwell 96GB 기준: 2g.48gb x2 또는 1g.24gb x4 가능
+
+왜 커스텀 ConfigMap인가?
+  GPU Operator가 기본 제공하는 default-mig-parted-config에 신형 GPU
+  (GB202) 항목이 없을 수 있어서. 실측으로 "2g.48gb": 2 가 GB202에서
+  그대로 유효함을 확인했다.
+
+all-disabled가 존재하는 이유:
+  gpu-operator.tf에서 migManager.config.default=all-disabled 로 지정 —
+  mig.config 라벨이 없는 GPU 노드는 MIG 없이(풀 GPU) 동작하는 안전 기본값.
+*/}}
+# Custom MIG parted config — the GPU Operator's default-mig-parted-config
+# may not include RTX PRO 6000 Blackwell (GB202) entries yet.
+# Profile names must be verified on-node with: nvidia-smi mig -lgip
+# (adjust here + terraform var.mig_config_profile if the actual name differs).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-mig-config
+  # release namespace = gpu-operator (created by this release)
+data:
+  config.yaml: |
+    version: v1
+    mig-configs:
+      all-disabled:
+        - devices: all
+          mig-enabled: false
+      all-2g.48gb:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            "2g.48gb": 2
+      all-1g.24gb:
+        - devices: all
+          mig-enabled: true
+          mig-devices:
+            "1g.24gb": 4
